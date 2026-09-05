@@ -1,23 +1,45 @@
-FROM php:8.2-fpm-alpine
+# -----------------------------------------------
+# Stage 1: Build Frontend Assets (Vite + React)
+# -----------------------------------------------
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# -----------------------------------------------
+# Stage 2: Install PHP Dependencies (Composer)
+# -----------------------------------------------
+FROM composer:2 AS vendor-builder
+WORKDIR /app
+COPY composer*.json ./
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+COPY . .
+RUN composer dump-autoload --optimize
+
+# -----------------------------------------------
+# Stage 3: Pure PHP-FPM
+# -----------------------------------------------
+FROM php:8.3-fpm-alpine
 
 RUN apk add --no-cache \
-    curl libpng-dev libxml2-dev zip unzip libzip-dev \
-    freetype-dev libjpeg-turbo-dev oniguruma-dev \
-    nodejs npm mysql-client bash
+    libpng-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    curl \
+    oniguruma-dev \
+    icu-dev \
+    && docker-php-ext-install pdo pdo_mysql mbstring gd zip bcmath intl opcache
 
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip opcache
+WORKDIR /var/www/html
 
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+COPY --from=vendor-builder /app /var/www/html
+COPY --from=frontend-builder /app/public/build /var/www/html/public/build
 
-WORKDIR /var/www
-COPY . .
-
-RUN composer install --no-dev --optimize-autoloader --no-interaction
-RUN npm install --legacy-peer-deps && npm run build
-
-RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache \
-    && chmod -R 775 /var/www/storage /var/www/bootstrap/cache
+RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
 EXPOSE 9000
+
 CMD ["php-fpm"]

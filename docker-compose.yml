@@ -1,0 +1,85 @@
+services:
+  # ১. PHP-FPM ব্যাকএন্ড
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: practice_app
+    restart: unless-stopped
+    volumes:
+      - ./:/var/www/html
+    env_file:
+      - .env
+    environment:
+      - DB_CONNECTION=${DB_CONNECTION:-mysql}
+      - DB_HOST=db
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_DATABASE=${DB_DATABASE:-practice}
+      - DB_USERNAME=${DB_USERNAME:-practice}
+      - DB_PASSWORD=${DB_PASSWORD:-practice}
+      # LocalStack AWS
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - AWS_BUCKET=${AWS_BUCKET:-my-local-bucket}
+      - AWS_ENDPOINT=http://localstack:4566
+      - AWS_USE_PATH_STYLE_ENDPOINT=true
+    depends_on:
+      - db
+      - localstack
+    networks:
+      - laravel-net
+
+  # ২. Nginx ওয়েব সার্ভার
+  nginx:
+    image: nginx:alpine
+    container_name: practice_nginx
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:80"
+    volumes:
+      - ./:/var/www/html
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    networks:
+      - laravel-net
+
+  # ৩. MySQL ডেটাবেজ
+  db:
+    image: mysql:8.0
+    platform: linux/amd64
+    container_name: practice_db
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-practice}
+      MYSQL_USER: ${DB_USERNAME:-practice}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-practice}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - laravel-net
+
+  # ৪. AWS LocalStack
+  localstack:
+    image: localstack/localstack:latest
+    container_name: laravel_localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,sqs
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - laravel-net
+
+networks:
+  laravel-net:
+    driver: bridge
+
+volumes:
+  db_data:
